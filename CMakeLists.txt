@@ -46,9 +46,12 @@ elseif(APPLE)
     )
 else()
     set(PLATFORM_SOURCES
+        rtc_base/task_queue_stdlib.cc
         api/task_queue/default_task_queue_factory_stdlib.cc
     )
-    set(PLATFORM_HEADERS "") # Linux aarch64 has no specific headers in this list
+    set(PLATFORM_HEADERS
+        rtc_base/task_queue_stdlib.h
+    ) # Linux aarch64 has no specific headers in this list
 endif()
 
 set(HEADERS
@@ -193,8 +196,6 @@ if(APPLE)
         "-framework Cocoa"
         "-framework CoreFoundation"
         ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_strings.a
-        ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_strings_internal.a
-        ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_string_view.a
         ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_base.a
         ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_raw_logging_internal.a
     )
@@ -257,6 +258,10 @@ add_executable(run_tests
     api/task_queue/task_queue_test.h
     api/task_queue/task_queue_test.cc
     rtc_base/task_utils/repeating_task_unittest.cc
+    rtc_base/task_queue_stdlib_unittest.cc
+    rtc_base/task_queue_stdlib.h
+    rtc_base/task_queue_stdlib.cc
+    rtc_base/task_queue_unittest.cc
     ${SOURCES}
 )
 

@@ -21,7 +21,7 @@
 #include "rtc_base/event.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/thread.h"
-#include "test/gtest.h"
+#include "gtest/gtest.h"
 
 namespace webrtc {
 namespace {
