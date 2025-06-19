@@ -23,7 +23,7 @@
 #include "rtc_base/event.h"
 #include "rtc_base/ref_counter.h"
 #include "rtc_base/time_utils.h"
-#include "test/gtest.h"
+#include "gtest/gtest.h"
 
 namespace webrtc {
 namespace {

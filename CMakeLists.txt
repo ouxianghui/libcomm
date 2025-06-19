@@ -128,6 +128,8 @@ set(SOURCES
     api/task_queue/pending_task_safety_flag.cc
     rtc_base/buffer_queue.cc
     rtc_base/byte_buffer.cc
+    rtc_base/bounded_inline_vector.h
+    rtc_base/bounded_inline_vector_impl.h
     rtc_base/callback_list.cc
     rtc_base/crc32.cc
     rtc_base/cpu_info.cc
@@ -249,6 +251,12 @@ add_executable(run_tests
     rtc_base/rate_limiter_unittest.cc
     rtc_base/rate_statistics_unittest.cc
     rtc_base/rate_tracker_unittest.cc
+    rtc_base/bounded_inline_vector_unittest.cc
+    rtc_base/task_queue_for_test.h
+    rtc_base/task_queue_for_test.cc
+    api/task_queue/task_queue_test.h
+    api/task_queue/task_queue_test.cc
+    rtc_base/task_utils/repeating_task_unittest.cc
     ${SOURCES}
 )
 

@@ -24,8 +24,8 @@
 #include "rtc_base/event.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "system_wrappers/include/clock.h"
-#include "test/gmock.h"
-#include "test/gtest.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 // NOTE: Since these tests rely on real time behavior, they will be flaky
 // if run on heavily loaded systems.
