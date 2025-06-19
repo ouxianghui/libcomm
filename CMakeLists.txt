@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(libcomm LANGUAGES CXX)
+project(comm LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -179,11 +179,11 @@ set(SOURCES
 )
 
 # --- 创建主可执行文件 ---
-add_executable(libcomm)
+add_executable(comm)
 
 # --- 为目标添加源文件和头文件 ---
 # 这样可以确保IDE能看到所有文件，同时只编译源文件
-target_sources(libcomm PRIVATE
+target_sources(comm PRIVATE
     main.cpp
     ${SOURCES}
     ${HEADERS}
@@ -191,7 +191,7 @@ target_sources(libcomm PRIVATE
 
 
 if(APPLE)
-    target_link_libraries(libcomm PRIVATE
+    target_link_libraries(comm PRIVATE
         "-framework Foundation"
         "-framework Cocoa"
         "-framework CoreFoundation"
@@ -200,18 +200,18 @@ if(APPLE)
         ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_raw_logging_internal.a
     )
 elseif(WIN32)
-    target_link_libraries(libcomm PRIVATE
+    target_link_libraries(comm PRIVATE
         Ws2_32.lib
         Winmm.lib
         ${CMAKE_CURRENT_LIST_DIR}/absl/win/lib/abseil_dll.lib
     )
 else()
-    target_link_libraries(libcomm PRIVATE
+    target_link_libraries(comm PRIVATE
     )
 endif()
 
 include(GNUInstallDirs)
-install(TARGETS libcomm
+install(TARGETS comm
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
@@ -277,13 +277,13 @@ if(APPLE)
         ${CMAKE_CURRENT_LIST_DIR}/absl/mac/lib/libabsl_raw_logging_internal.a
     )
 elseif(WIN32)
-    target_link_libraries(libcomm PRIVATE
+    target_link_libraries(comm PRIVATE
         Ws2_32.lib
         Winmm.lib
         ${CMAKE_CURRENT_LIST_DIR}/absl/win/lib/abseil_dll.lib
     )
 else()
-    target_link_libraries(libcomm PRIVATE
+    target_link_libraries(comm PRIVATE
     )
 endif()
 
