@@ -20,8 +20,8 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/time_utils.h"
-#include "test/gmock.h"
-#include "test/gtest.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 namespace webrtc {
 

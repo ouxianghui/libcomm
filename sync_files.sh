@@ -18,7 +18,7 @@ if [ ! -d "$SOURCE_DIR" ]; then
 fi
 
 # 定义要同步的目标子目录
-TARGET_SUBDIRS=("api" "rtc_base")
+TARGET_SUBDIRS=("api" "rtc_base" "system_wrappers")
 
 # 遍历每个目标子目录
 for SUBDIR in "${TARGET_SUBDIRS[@]}"; do
