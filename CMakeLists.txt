@@ -104,7 +104,7 @@ set(HEADERS
     rtc_base/containers/flat_set.h
     rtc_base/containers/flat_tree.h
     rtc_base/containers/invoke.h
-    rtc_base/memory/aligned_malloc.cc
+    rtc_base/memory/aligned_malloc.h
     rtc_base/memory/fifo_buffer.cc
     rtc_base/synchronization/yield_policy.h
     rtc_base/synchronization/yield.h
@@ -163,6 +163,7 @@ set(SOURCES
     rtc_base/frequency_tracker.cc
     rtc_base/stream.cc
     rtc_base/containers/flat_tree.cc
+    rtc_base/memory/aligned_malloc.cc
     rtc_base/synchronization/yield_policy.cc
     rtc_base/synchronization/yield.cc
     rtc_base/synchronization/sequence_checker_internal.cc
