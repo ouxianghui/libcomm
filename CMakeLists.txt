@@ -26,7 +26,6 @@ if(WIN32)
         rtc_base/task_queue_win.cc
     )
     set(PLATFORM_HEADERS
-        rtc_base/byte_order.h
         rtc_base/task_queue_win.h
         rtc_base/win32.h
     )
@@ -87,6 +86,7 @@ set(HEADERS
     rtc_base/time_utils.h
     rtc_base/system_time.h
     rtc_base/logging.h
+    rtc_base/socket_server.h
     rtc_base/null_socket_server.h
     rtc_base/memory_stream.h
     rtc_base/memory_usage.h

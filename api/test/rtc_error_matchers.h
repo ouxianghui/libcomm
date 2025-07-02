@@ -15,7 +15,7 @@
 
 #include "absl/strings/str_cat.h"
 #include "api/rtc_error.h"
-#include "gmock/gmock.h"
+#include "test/gmock.h"
 
 namespace webrtc {
 

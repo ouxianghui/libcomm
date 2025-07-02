@@ -19,7 +19,7 @@
 
 #include "absl/strings/string_view.h"
 #include "rtc_base/system/file_wrapper.h"
-#include "gtest/gtest.h"
+#include "test/gtest.h"
 #include "test/testsupport/file_utils.h"
 
 namespace webrtc {
