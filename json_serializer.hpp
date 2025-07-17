@@ -29,6 +29,55 @@
 
 namespace json_serializer {
 
+// Error handling structure - defined early for use in function signatures
+struct SerializeError {
+    enum class ErrorCode {
+        NONE,
+        PARSE_ERROR,
+        MISSING_FIELD,
+        TYPE_MISMATCH,
+        VALIDATION_ERROR,
+        CUSTOM_ERROR
+    };
+
+    ErrorCode code = ErrorCode::NONE;
+    std::string message;
+    std::string path;
+
+    bool has_error() const {
+        return code != ErrorCode::NONE;
+    }
+
+    // Add method to build nested paths
+    static std::string build_path(const std::string& parent, const std::string& child) {
+        if (parent.empty()) {
+            return child;
+        }
+        return parent + "." + child;
+    }
+
+    // Add method to append to path
+    void append_path(const std::string& part) {
+        if (path.empty()) {
+            path = part;
+        } else {
+            path += "." + part;
+        }
+    }
+};
+
+// Serialization options structure - defined early for use in function signatures
+struct SerializeOptions {
+    bool pretty_print = false;
+    bool include_null_fields = false;
+    std::vector<std::string> included_fields;  // If non-empty, only include these fields
+    std::vector<std::string> excluded_fields;  // If non-empty, exclude these fields
+    int max_recursion_depth = 32;              // Maximum recursion depth
+
+    using ValidationFunction = std::function<SerializeError(const rapidjson::Value&)>;
+    ValidationFunction custom_validator;
+};
+
 // Helper type trait is_optional
 template<typename T>
 struct is_optional {
@@ -279,9 +328,17 @@ struct Serializer<std::map<K, V>> {
             if constexpr (std::is_same_v<K, std::string>) {
                 result[it->name.GetString()] = Serializer<V>::deserialize(it->value);
             } else if constexpr (std::is_integral_v<K>) {
-                result[static_cast<K>(std::stoll(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                try {
+                    result[static_cast<K>(std::stoll(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                } catch (...) {
+                    // Malformed key, skip this entry
+                }
             } else if constexpr (std::is_floating_point_v<K>) {
-                result[static_cast<K>(std::stod(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                try {
+                    result[static_cast<K>(std::stod(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                } catch (...) {
+                    // Malformed key, skip this entry
+                }
             }
         }
         return result;
@@ -316,9 +373,17 @@ struct Serializer<std::unordered_map<K, V>> {
             if constexpr (std::is_same_v<K, std::string>) {
                 result[it->name.GetString()] = Serializer<V>::deserialize(it->value);
             } else if constexpr (std::is_integral_v<K>) {
-                result[static_cast<K>(std::stoll(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                try {
+                    result[static_cast<K>(std::stoll(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                } catch (...) {
+                    // Malformed key, skip this entry
+                }
             } else if constexpr (std::is_floating_point_v<K>) {
-                result[static_cast<K>(std::stod(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                try {
+                    result[static_cast<K>(std::stod(it->name.GetString()))] = Serializer<V>::deserialize(it->value);
+                } catch (...) {
+                    // Malformed key, skip this entry
+                }
             }
         }
         return result;
@@ -523,13 +588,134 @@ public:
     static constexpr bool value = decltype(test<T>(0))::value;
 };
 
+// Type trait to check if a class has _json_base_classes
+template<typename T>
+struct HasJsonBaseClasses {
+private:
+    template<typename C>
+    static auto test(int) -> decltype(std::void_t<typename C::_json_base_class_types_tuple>(), std::true_type{});
+
+    template<typename>
+    static auto test(...) -> std::false_type;
+
+public:
+    static constexpr bool value = decltype(test<T>(0))::value;
+};
+
+// Forward declarations for all serialization helper functions
+template<typename Obj, typename... Args>
+void _serialize_fields(const Obj& obj, rapidjson::Value& json_value,
+                     rapidjson::Document::AllocatorType& allocator,
+                     const std::tuple<Args...>& fields);
+
+template<typename Obj, typename... Args>
+void _deserialize_fields(Obj& obj, const rapidjson::Value& json_value,
+                       const std::tuple<Args...>& fields);
+
+template<typename T>
+void serializeBaseClasses(const T& obj, rapidjson::Value& json_value,
+                          rapidjson::Document::AllocatorType& allocator);
+
+template<typename T>
+void deserializeBaseClasses(T& obj, const rapidjson::Value& json_value);
+
+
+// === IMPLEMENTATION OF ALL SERIALIZATION HELPERS ===
+
+template<typename Obj, typename... Args, size_t... I>
+void _serialize_fields_tuple(const Obj& obj, rapidjson::Value& json_value,
+                          rapidjson::Document::AllocatorType& allocator,
+                          const std::tuple<Args...>& fields,
+                          std::index_sequence<I...>) {
+    auto serialize_one_field = [&](const char* name, auto member_ptr) {
+        if constexpr (is_optional_v<std::decay_t<decltype(obj.*member_ptr)>>) {
+            if ((obj.*member_ptr).has_value()) {
+                 rapidjson::Value field_value;
+                 Serializer<std::decay_t<decltype((obj.*member_ptr).value())>>::serialize((obj.*member_ptr).value(), field_value, allocator);
+                 json_value.AddMember(rapidjson::Value(name, allocator).Move(), field_value, allocator);
+            }
+        } else {
+            rapidjson::Value field_value;
+            Serializer<std::decay_t<decltype(obj.*member_ptr)>>::serialize(obj.*member_ptr, field_value, allocator);
+            json_value.AddMember(rapidjson::Value(name, allocator).Move(), field_value, allocator);
+        }
+    };
+    (serialize_one_field(std::get<I*2>(fields), std::get<I*2+1>(fields)), ...);
+}
+
+template<typename Obj, typename... Args>
+void _serialize_fields(const Obj& obj, rapidjson::Value& json_value,
+                     rapidjson::Document::AllocatorType& allocator,
+                     const std::tuple<Args...>& fields) {
+    _serialize_fields_tuple(obj, json_value, allocator, fields, std::make_index_sequence<sizeof...(Args) / 2>{});
+}
+
+template<typename Obj, typename... Args, size_t... I>
+void _deserialize_fields_tuple(Obj& obj, const rapidjson::Value& json_value,
+                            const std::tuple<Args...>& fields,
+                            std::index_sequence<I...>) {
+    auto deserialize_one_field = [&](const char* name, auto member_ptr) {
+        if (json_value.HasMember(name)) {
+            obj.*member_ptr = Serializer<std::decay_t<decltype(obj.*member_ptr)>>::deserialize(json_value[name]);
+        }
+    };
+    (deserialize_one_field(std::get<I*2>(fields), std::get<I*2+1>(fields)), ...);
+}
+
+template<typename Obj, typename... Args>
+void _deserialize_fields(Obj& obj, const rapidjson::Value& json_value,
+                       const std::tuple<Args...>& fields) {
+    _deserialize_fields_tuple(obj, json_value, fields, std::make_index_sequence<sizeof...(Args) / 2>{});
+}
+
+template<typename T, typename BaseClass>
+void serializeBaseClass(const T& obj, rapidjson::Value& json_value,
+                        rapidjson::Document::AllocatorType& allocator) {
+    const auto& base_obj = static_cast<const BaseClass&>(obj);
+    serializeBaseClasses(base_obj, json_value, allocator);
+    if constexpr (HasJsonFieldMap<BaseClass>::value) {
+        _serialize_fields(base_obj, json_value, allocator, BaseClass::_json_field_map());
+    }
+}
+
+template<typename T>
+void serializeBaseClasses(const T& obj, rapidjson::Value& json_value,
+                          rapidjson::Document::AllocatorType& allocator) {
+    if constexpr (HasJsonBaseClasses<T>::value) {
+        using BaseTypes = typename T::_json_base_class_types_tuple;
+        [&]<size_t... Is>(std::index_sequence<Is...>) {
+            (serializeBaseClass<T, std::tuple_element_t<Is, BaseTypes>>(obj, json_value, allocator), ...);
+        }(std::make_index_sequence<std::tuple_size_v<BaseTypes>>{});
+    }
+}
+
+template<typename T, typename BaseClass>
+void deserializeBaseClass(T& obj, const rapidjson::Value& json_value) {
+    auto& base_obj = static_cast<BaseClass&>(obj);
+    deserializeBaseClasses(base_obj, json_value);
+    if constexpr (HasJsonFieldMap<BaseClass>::value) {
+        _deserialize_fields(base_obj, json_value, BaseClass::_json_field_map());
+    }
+}
+
+template<typename T>
+void deserializeBaseClasses(T& obj, const rapidjson::Value& json_value) {
+    if constexpr (HasJsonBaseClasses<T>::value) {
+        using BaseTypes = typename T::_json_base_class_types_tuple;
+        [&]<size_t... Is>(std::index_sequence<Is...>) {
+            (deserializeBaseClass<T, std::tuple_element_t<Is, BaseTypes>>(obj, json_value), ...);
+        }(std::make_index_sequence<std::tuple_size_v<BaseTypes>>{});
+    }
+}
+
 // Serialization for classes with _json_field_map
 template<typename T>
     requires HasJsonFieldMap<T>::value
 struct Serializer<T> {
     static void serialize(const T& obj, rapidjson::Value& json_value, rapidjson::Document::AllocatorType& allocator) {
         json_value.SetObject();
-        serializeFields(obj, json_value, allocator, T::_json_field_map());
+        serializeBaseClasses(obj, json_value, allocator);
+        _serialize_fields(obj, json_value, allocator, T::_json_field_map());
     }
 
     static T deserialize(const rapidjson::Value& json_value) {
@@ -537,60 +723,11 @@ struct Serializer<T> {
         if (!json_value.IsObject()) {
             return obj;
         }
-        deserializeFields(obj, json_value, T::_json_field_map());
+
+        deserializeBaseClasses(obj, json_value);
+        _deserialize_fields(obj, json_value, T::_json_field_map());
+
         return obj;
-    }
-
-private:
-    template<typename Obj, typename... Args>
-    static void serializeFields(const Obj& obj, rapidjson::Value& json_value,
-                                rapidjson::Document::AllocatorType& allocator,
-                                const std::tuple<Args...>& fields) {
-        serializeFieldsTuple(obj, json_value, allocator, fields, std::make_index_sequence<sizeof...(Args) / 2>{});
-    }
-
-    template<typename Obj, typename... Args, size_t... I>
-    static void serializeFieldsTuple(const Obj& obj, rapidjson::Value& json_value,
-                                     rapidjson::Document::AllocatorType& allocator,
-                                     const std::tuple<Args...>& fields,
-                                     std::index_sequence<I...>) {
-        // Expand parameter pack for processing - process two elements at a time (field name and field pointer)
-        (serializeField(obj, json_value, allocator,
-                        std::get<I*2>(fields),
-                        std::get<I*2+1>(fields)), ...);
-    }
-
-    template<typename Obj>
-    static void serializeField(const Obj& obj, rapidjson::Value& json_value,
-                               rapidjson::Document::AllocatorType& allocator,
-                               const char* field_name, auto Obj::* field) {
-        rapidjson::Value field_value;
-        Serializer<std::decay_t<decltype(obj.*field)>>::serialize(obj.*field, field_value, allocator);
-        json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator);
-    }
-
-    template<typename Obj, typename... Args>
-    static void deserializeFields(Obj& obj, const rapidjson::Value& json_value,
-                                  const std::tuple<Args...>& fields) {
-        deserializeFieldsTuple(obj, json_value, fields, std::make_index_sequence<sizeof...(Args) / 2>{});
-    }
-
-    template<typename Obj, typename... Args, size_t... I>
-    static void deserializeFieldsTuple(Obj& obj, const rapidjson::Value& json_value,
-                                       const std::tuple<Args...>& fields,
-                                       std::index_sequence<I...>) {
-        // Expand parameter pack for processing - process two elements at a time (field name and field pointer)
-        (deserializeField(obj, json_value,
-                          std::get<I*2>(fields),
-                          std::get<I*2+1>(fields)), ...);
-    }
-
-    template<typename Obj>
-    static void deserializeField(Obj& obj, const rapidjson::Value& json_value,
-                                 const char* field_name, auto Obj::* field) {
-        if (json_value.HasMember(field_name)) {
-            obj.*field = Serializer<std::decay_t<decltype(obj.*field)>>::deserialize(json_value[field_name]);
-        }
     }
 };
 
@@ -617,9 +754,17 @@ template<> \
     static void serializeFields(const Obj& obj, rapidjson::Value& json_value, \
                     rapidjson::Document::AllocatorType& allocator, \
                     const char* field_name, auto Obj::* field, Fields... fields) { \
-            rapidjson::Value field_value; \
-            Serializer<std::decay_t<decltype(obj.*field)>>::serialize(obj.*field, field_value, allocator); \
-            json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator); \
+            if constexpr (json_serializer::is_optional_v<std::decay_t<decltype(obj.*field)>>) { \
+                if ((obj.*field).has_value()) { \
+                    rapidjson::Value field_value; \
+                    Serializer<std::decay_t<decltype((obj.*field).value())>>::serialize((obj.*field).value(), field_value, allocator); \
+                    json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator); \
+                } \
+            } else { \
+                rapidjson::Value field_value; \
+                Serializer<std::decay_t<decltype(obj.*field)>>::serialize(obj.*field, field_value, allocator); \
+                json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator); \
+            } \
         \
             if constexpr (sizeof...(fields) > 0) { \
                 serializeFields(obj, json_value, allocator, fields...); \
@@ -680,43 +825,6 @@ std::string serialize_pretty(const T& obj) {
     return buffer.GetString();
 }
 
-// Error handling structure
-struct SerializeError {
-    enum class ErrorCode {
-        NONE,
-        PARSE_ERROR,
-        MISSING_FIELD,
-        TYPE_MISMATCH,
-        VALIDATION_ERROR,
-        CUSTOM_ERROR
-    };
-
-    ErrorCode code = ErrorCode::NONE;
-    std::string message;
-    std::string path;
-
-    bool has_error() const {
-        return code != ErrorCode::NONE;
-    }
-
-    // Add method to build nested paths
-    static std::string build_path(const std::string& parent, const std::string& child) {
-        if (parent.empty()) {
-            return child;
-        }
-        return parent + "." + child;
-    }
-
-    // Add method to append to path
-    void append_path(const std::string& part) {
-        if (path.empty()) {
-            path = part;
-        } else {
-            path += "." + part;
-        }
-    }
-};
-
 // Enhanced error handling - add type checking functionality
 template<typename T>
 std::pair<T, SerializeError> deserialize_with_type_check(const std::string& json_str) {
@@ -731,7 +839,6 @@ std::pair<T, SerializeError> deserialize_with_type_check(const std::string& json
         return {T{}, error};
     }
 
-    // Improved type checking for different container types
     if constexpr (std::is_same_v<T, std::string>) {
         if (!doc.IsString()) {
             error.code = SerializeError::ErrorCode::TYPE_MISMATCH;
@@ -758,130 +865,7 @@ std::pair<T, SerializeError> deserialize_with_type_check(const std::string& json
         }
     }
 
-    // Rest of the implementation...
     return {Serializer<T>::deserialize(doc), error};
-}
-
-// Serialization options structure
-struct SerializeOptions {
-    bool pretty_print = false;
-    bool include_null_fields = false;
-    std::vector<std::string> included_fields;  // If non-empty, only include these fields
-    std::vector<std::string> excluded_fields;  // If non-empty, exclude these fields
-    int max_recursion_depth = 32;              // Maximum recursion depth
-
-    using ValidationFunction = std::function<SerializeError(const rapidjson::Value&)>;
-    ValidationFunction custom_validator;
-};
-
-// Add a new function with nested depth tracking and support for serialization options
-template<typename T>
-std::string serialize_with_options(const T& obj, const SerializeOptions& options = {}) {
-    rapidjson::Document doc;
-    doc.SetObject();
-    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-
-    rapidjson::Value json_value;
-    serialize_with_options_impl(obj, json_value, allocator, options, 0);
-
-    rapidjson::StringBuffer buffer;
-
-    if (options.pretty_print) {
-        rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
-        json_value.Accept(writer);
-    } else {
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        json_value.Accept(writer);
-    }
-
-    return buffer.GetString();
-}
-
-// Implementation of serialization helper function with options
-template<typename T>
-void serialize_with_options_impl(const T& obj, rapidjson::Value& json_value,
-                                 rapidjson::Document::AllocatorType& allocator,
-                                 const SerializeOptions& options, int depth) {
-    // Check recursion depth
-    if (depth > options.max_recursion_depth) {
-        json_value.SetNull();
-        return;
-    }
-
-    if constexpr (HasJsonFieldMap<T>::value) {
-        json_value.SetObject();
-        // Get field mapping
-        auto fields = T::_json_field_map();
-        // Use helper function to process fields
-        serialize_fields_with_options(obj, json_value, allocator, fields, options, depth + 1);
-    } else {
-        // For non-struct types, use standard serialization
-        Serializer<T>::serialize(obj, json_value, allocator);
-    }
-}
-
-// Add serialize_fields_with_options related functions
-template<typename Obj, typename... Args>
-void serialize_fields_with_options(const Obj& obj, rapidjson::Value& json_value,
-                                   rapidjson::Document::AllocatorType& allocator,
-                                   const std::tuple<Args...>& fields,
-                                   const SerializeOptions& options, int depth) {
-    serialize_fields_tuple_with_options(obj, json_value, allocator, fields, options, depth,
-                                        std::make_index_sequence<sizeof...(Args) / 2>{});
-}
-
-template<typename Obj, typename... Args, size_t... I>
-void serialize_fields_tuple_with_options(const Obj& obj, rapidjson::Value& json_value,
-                                         rapidjson::Document::AllocatorType& allocator,
-                                         const std::tuple<Args...>& fields,
-                                         const SerializeOptions& options, int depth,
-                                         std::index_sequence<I...>) {
-    // Expand parameter pack and process each field
-    (serialize_field_with_options(obj, json_value, allocator,
-                                  std::get<I*2>(fields),
-                                  std::get<I*2+1>(fields),
-                                  options, depth), ...);
-}
-
-template<typename Obj>
-void serialize_field_with_options(const Obj& obj, rapidjson::Value& json_value,
-                                  rapidjson::Document::AllocatorType& allocator,
-                                  const char* field_name, auto Obj::* field,
-                                  const SerializeOptions& options, int depth) {
-    // Check if field should be excluded
-    if (!options.excluded_fields.empty() &&
-        std::find(options.excluded_fields.begin(), options.excluded_fields.end(), field_name) != options.excluded_fields.end()) {
-        return;
-    }
-
-    // Check if field should be included
-    if (!options.included_fields.empty() &&
-        std::find(options.included_fields.begin(), options.included_fields.end(), field_name) == options.included_fields.end()) {
-        return;
-    }
-
-    // Improved handling of optional fields
-    if constexpr (is_optional_v<std::decay_t<decltype(obj.*field)>>) {
-        if (!(obj.*field).has_value()) {
-            // If options require including null fields, add null
-            if (options.include_null_fields) {
-                rapidjson::Value field_value;
-                field_value.SetNull();
-                json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator);
-            }
-            return;
-        }
-
-        // Handle the optional value that exists
-        rapidjson::Value field_value;
-        serialize_with_options_impl((obj.*field).value(), field_value, allocator, options, depth);
-        json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator);
-    } else {
-        // Handle non-optional field
-        rapidjson::Value field_value;
-        serialize_with_options_impl(obj.*field, field_value, allocator, options, depth);
-        json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator);
-    }
 }
 
 // Add forward declarations - should be placed before deserialize_with_defaults function
@@ -913,11 +897,9 @@ void deserialize_with_defaults_tuple(T& obj, const rapidjson::Value& json_value,
 template<typename T>
 void deserialize_field_with_defaults(T& obj, const rapidjson::Value& json_value,
                                      const char* field_name, auto T::* field) {
-    // Only override default value if field exists in JSON
     if (json_value.HasMember(field_name)) {
         obj.*field = Serializer<std::decay_t<decltype(obj.*field)>>::deserialize(json_value[field_name]);
     }
-    // Keep default value if field doesn't exist
 }
 
 // Deserialization with defaults
@@ -947,26 +929,28 @@ T deserialize_with_defaults(const std::string& json_str, const T& defaults = Def
 template<typename T>
 std::string serialize_optimized(const T& obj, std::size_t reserved_size = 1024) {
     rapidjson::Document doc;
-    doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-    rapidjson::Value json_value;
-    Serializer<T>::serialize(obj, json_value, allocator);
+    // Correctly handle non-object types at the root
+    if constexpr (HasJsonFieldMap<T>::value) {
+         doc.SetObject();
+    }
+
+    Serializer<T>::serialize(obj, doc, allocator);
 
     rapidjson::StringBuffer buffer;
-    buffer.Reserve(reserved_size);  // Pre-allocate memory
+    buffer.Reserve(reserved_size);
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    json_value.Accept(writer);
+    doc.Accept(writer);
 
     return buffer.GetString();
 }
 
 
-// Add deserialize_strict function - should be placed inside namespace json_serializer
+// Add deserialize_strict function
 template<typename T>
 std::pair<T, SerializeError> deserialize_strict(const std::string& json_str,
-                                                const std::vector<std::string>& required_fields = {},
-                                                const SerializeOptions::ValidationFunction& validator = nullptr) {
+                                                const std::vector<std::string>& required_fields = {}) {
     SerializeError error;
     rapidjson::Document doc;
     doc.Parse(json_str.c_str());
@@ -1000,14 +984,6 @@ std::pair<T, SerializeError> deserialize_strict(const std::string& json_str,
         }
     }
 
-    // Run the custom validator if provided
-    if (validator) {
-        error = validator(doc);
-        if (error.has_error()) {
-            return {T{}, error};
-        }
-    }
-
     return {Serializer<T>::deserialize(doc), error};
 }
 
@@ -1020,7 +996,68 @@ static constexpr auto _json_field_map() { \
     template<typename T> \
     friend struct json_serializer::Serializer;
 
-std::string format_error(const SerializeError& error) {
+// Macro to declare base classes for JSON serialization
+#define DECLARE_JSON_BASE_CLASSES(...) \
+using _json_base_class_types_tuple = std::tuple<__VA_ARGS__>; \
+template<typename FriendT> \
+friend struct json_serializer::Serializer;
+
+// Macro to inherit JSON fields from base classes
+#define INHERIT_JSON_FIELDS(BaseClass) \
+DECLARE_JSON_BASE_CLASSES(BaseClass)
+
+// Macro to inherit JSON fields from multiple base classes
+#define INHERIT_JSON_FIELDS_MULTIPLE(...) \
+DECLARE_JSON_BASE_CLASSES(__VA_ARGS__)
+
+// Enhanced macro for classes with inheritance (DEPRECATED - use DECLARE_JSON_BASE_CLASSES)
+#define JSON_SERIALIZABLE_INHERITED(Type, BaseClasses, ...) \
+template<> \
+    struct json_serializer::Serializer<Type> { \
+        static void serialize(const Type& obj, rapidjson::Value& json_value, rapidjson::Document::AllocatorType& allocator) { \
+            json_value.SetObject(); \
+            json_serializer::serializeBaseClasses(obj, json_value, allocator); \
+            serializeFields(obj, json_value, allocator, __VA_ARGS__); \
+    } \
+    \
+        static Type deserialize(const rapidjson::Value& json_value) { \
+            Type obj; \
+            if (!json_value.IsObject()) { \
+                return obj; \
+        } \
+            json_serializer::deserializeBaseClasses(obj, json_value); \
+            deserializeFields(obj, json_value, __VA_ARGS__); \
+            return obj; \
+    } \
+    \
+    private: \
+    template<typename Obj, typename... Fields> \
+    static void serializeFields(const Obj& obj, rapidjson::Value& json_value, \
+                    rapidjson::Document::AllocatorType& allocator, \
+                    const char* field_name, auto Obj::* field, Fields... fields) { \
+            rapidjson::Value field_value; \
+            Serializer<std::decay_t<decltype(obj.*field)>>::serialize(obj.*field, field_value, allocator); \
+            json_value.AddMember(rapidjson::Value(field_name, allocator).Move(), field_value, allocator); \
+        \
+            if constexpr (sizeof...(fields) > 0) { \
+                serializeFields(obj, json_value, allocator, fields...); \
+        } \
+    } \
+    \
+        template<typename Obj, typename... Fields> \
+        static void deserializeFields(Obj& obj, const rapidjson::Value& json_value, \
+                          const char* field_name, auto Obj::* field, Fields... fields) { \
+            if (json_value.HasMember(field_name)) { \
+                obj.*field = Serializer<std::decay_t<decltype(obj.*field)>>::deserialize(json_value[field_name]); \
+        } \
+        \
+            if constexpr (sizeof...(fields) > 0) { \
+                deserializeFields(obj, json_value, fields...); \
+        } \
+    } \
+};
+
+inline std::string format_error(const SerializeError& error) {
     if (!error.has_error()) {
         return "No error";
     }
