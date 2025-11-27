@@ -18,7 +18,7 @@
 #include <type_traits>
 #include <utility>
 #include "api/task_queue/task_queue_base.h"
-#include "light_weight_semaphore.hpp"
+#include "lightweightsemaphore.h"
 
 #if !defined(DISABLE_PROXY_TRACE_EVENTS)
     #define DISABLE_PROXY_TRACE_EVENTS
@@ -137,7 +137,7 @@ namespace details {
         Method m_;
         ReturnType<R> r_;
         std::tuple<Args&&...> args_;
-        base::LightweightSemaphore sema_;
+        moodycamel::LightweightSemaphore sema_;
     };
 
     template <typename C, typename R, typename... Args>
@@ -180,7 +180,7 @@ namespace details {
         Method m_;
         ReturnType<R> r_;
         std::tuple<Args&&...> args_;
-        base::LightweightSemaphore sema_;
+        moodycamel::LightweightSemaphore sema_;
     };
 }
 

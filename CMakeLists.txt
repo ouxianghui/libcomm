@@ -59,7 +59,7 @@ set(HEADERS
     main_thread.hpp
     signal.hpp
     observable.hpp
-    light_weight_semaphore.hpp
+    task_scheduler.hpp
     api/sequence_checker.h
     api/units/time_delta.h
     api/units/timestamp.h
@@ -124,6 +124,7 @@ set(HEADERS
 set(SOURCES
     proxy.cpp
     main_thread.cpp
+    task_scheduler.cpp
     api/rtc_error.cc
     api/units/time_delta.cc
     api/units/timestamp.cc
