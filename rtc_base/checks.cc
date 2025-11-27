@@ -12,7 +12,6 @@
 // src/base/logging.cc.
 
 #include <stdlib.h>
-
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -31,10 +30,8 @@
 
 #if defined(WEBRTC_WIN)
 #define LAST_SYSTEM_ERROR (::GetLastError())
-#elif defined(__native_client__) && __native_client__
-#define LAST_SYSTEM_ERROR (0)
 #elif defined(WEBRTC_POSIX)
-#include <errno.h>
+#include <cerrno>
 #define LAST_SYSTEM_ERROR (errno)
 #endif  // WEBRTC_WIN
 

@@ -179,11 +179,11 @@ int main() {
         // 创建一个工作线程，用于发送消息到主线程
         std::thread worker([&handler]() {
             std::cout << "Worker thread started: " << std::this_thread::get_id() << std::endl;
-            
+
             // 发送一些消息到主线程
             for (int i = 0; i < 5; ++i) {
                 std::cout << "Posting task " << i << std::endl;
-                
+
                 // 使用 PostTask 异步发送消息
                 MainThread::Instance()->PostTask([&handler, i]() {
                         handler.OnMessage("Async message " + std::to_string(i));
@@ -207,13 +207,13 @@ int main() {
             std::cout << "\nDemonstrating BlockingCall..." << std::endl;
             for (int i = 1; i <= 3; ++i) {
                 std::cout << "Calling CalculateOnMainThread(" << i << ") from worker thread" << std::endl;
-                
+
                 int result = 0;
                 MainThread::Instance()->BlockingCall([&handler, i, &result]() {
                         result = handler.CalculateOnMainThread(i);
                     }
                 );
-                
+
                 std::cout << "Got result from main thread: " << result << std::endl;
             }
 
@@ -224,7 +224,7 @@ int main() {
         worker.detach();
 
         std::cout << "Starting message loop..." << std::endl;
-        
+
         MainThread::Instance()->Loop(100);
 
         return 0;
