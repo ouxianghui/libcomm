@@ -17,7 +17,6 @@ add_definitions(-D__native_client__)
 
 include_directories(${CMAKE_CURRENT_LIST_DIR})
 
-
 if(WIN32)
     include_directories(${CMAKE_CURRENT_LIST_DIR}/absl/win/include)
     set(PLATFORM_SOURCES
@@ -54,12 +53,6 @@ else()
 endif()
 
 set(HEADERS
-    json_serializer.hpp
-    proxy.hpp
-    main_thread.hpp
-    signal.hpp
-    observable.hpp
-    task_scheduler.hpp
     api/sequence_checker.h
     api/units/time_delta.h
     api/units/timestamp.h
@@ -122,9 +115,6 @@ set(HEADERS
 )
 
 set(SOURCES
-    proxy.cpp
-    main_thread.cpp
-    task_scheduler.cpp
     api/rtc_error.cc
     api/units/time_delta.cc
     api/units/timestamp.cc
@@ -180,18 +170,12 @@ set(SOURCES
     ${PLATFORM_SOURCES}
 )
 
-# --- 创建主可执行文件 ---
-add_executable(comm)
+add_library(comm STATIC)
 
-# --- 为目标添加源文件和头文件 ---
-# 这样可以确保IDE能看到所有文件，同时只编译源文件
 target_sources(comm PRIVATE
-    main.cpp
     ${SOURCES}
     ${HEADERS}
 )
-
-
 if(APPLE)
     target_link_libraries(comm PRIVATE
         "-framework Foundation"
@@ -214,16 +198,17 @@ endif()
 
 include(GNUInstallDirs)
 install(TARGETS comm
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 # ===================================================================
-#  测试配置
+#  test configuration
 # ===================================================================
 enable_testing()
 
-# 在 include(FetchContent) 之前设置策略以消除警告
+# include(FetchContent) for cancelling the warning
 cmake_policy(SET CMP0135 NEW)
 
 include(FetchContent)
